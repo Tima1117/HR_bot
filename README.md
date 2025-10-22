@@ -37,7 +37,7 @@
 
 ```bash
 # Перейдите в директорию проекта
-cd /home/timofei/Документы/Cursor/HR_Bot
+cd 
 
 # Создайте виртуальное окружение
 python3 -m venv venv
