@@ -91,44 +91,20 @@ async def process_vacancy(message: Message, state: FSMContext):
     """Обработка названия вакансии"""
     vacancy_name = message.text.strip()
     await state.update_data(vacancy_name=vacancy_name)
-    await state.set_state(RegistrationStates.waiting_for_first_name)
+    await state.set_state(RegistrationStates.waiting_for_name)
     await message.answer(
         f"✅ Отлично! Вакансия: <b>{vacancy_name}</b>\n\n"
         "📝 Теперь приступим к сбору ваших данных.\n\n"
-        "Пожалуйста, введите ваше <b>Имя</b>:",
+        "Пожалуйста, введите ваше <b>ФИО</b>:",
         parse_mode="HTML"
     )
 
 
-@router.message(RegistrationStates.waiting_for_first_name)
-async def process_first_name(message: Message, state: FSMContext):
-    """Обработка имени"""
-    await state.update_data(first_name=message.text)
-    await state.set_state(RegistrationStates.waiting_for_last_name)
-    await message.answer(
-        "✅ Принято!\n\n"
-        "Теперь введите вашу <b>Фамилию</b>:",
-        parse_mode="HTML"
-    )
-
-
-@router.message(RegistrationStates.waiting_for_last_name)
-async def process_last_name(message: Message, state: FSMContext):
-    """Обработка фамилии"""
-    await state.update_data(last_name=message.text)
-    await state.set_state(RegistrationStates.waiting_for_middle_name)
-    await message.answer(
-        "✅ Принято!\n\n"
-        "Введите ваше <b>Отчество</b> (или отправьте '-' если нет):",
-        parse_mode="HTML"
-    )
-
-
-@router.message(RegistrationStates.waiting_for_middle_name)
-async def process_middle_name(message: Message, state: FSMContext):
+@router.message(RegistrationStates.waiting_for_name)
+async def process_name(message: Message, state: FSMContext):
     """Обработка отчества"""
-    middle_name = None if message.text == "-" else message.text
-    await state.update_data(middle_name=middle_name)
+    name = None if message.text == "-" else message.text
+    await state.update_data(name=name)
     await state.set_state(RegistrationStates.waiting_for_phone)
     await message.answer(
         "✅ Принято!\n\n"
@@ -140,14 +116,24 @@ async def process_middle_name(message: Message, state: FSMContext):
 @router.message(RegistrationStates.waiting_for_phone)
 async def process_phone(message: Message, state: FSMContext):
     """Обработка номера телефона"""
-    # Здесь можно добавить валидацию номера
-    await state.update_data(phone=message.text)
+    phone = message.text.strip()
 
-    # Проверяем, есть ли у пользователя Telegram username
+    # Валидация номера телефона
+    if not is_valid_phone(phone):
+        await message.answer(
+            "❌ <b>Неверный формат номера телефона!</b>\n\n"
+            "Пожалуйста, введите номер в одном из форматов:\n"
+            "• +79991234567\n"
+            "Номер должен содержать 11 цифр после кода страны.",
+            parse_mode="HTML"
+        )
+        return
+
+    await state.update_data(phone=phone)
+
     telegram_username = message.from_user.username
 
     if telegram_username:
-        # Если username есть, сохраняем его и переходим к городу
         await state.update_data(telegram_username=f"@{telegram_username}")
         await state.set_state(RegistrationStates.waiting_for_city)
         await message.answer(
@@ -156,7 +142,6 @@ async def process_phone(message: Message, state: FSMContext):
             parse_mode="HTML"
         )
     else:
-        # Если username нет, запрашиваем его
         await state.set_state(RegistrationStates.waiting_for_telegram_username)
         await message.answer(
             "✅ Принято!\n\n"
