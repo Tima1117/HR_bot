@@ -10,10 +10,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery, ContentType
 from aiogram.exceptions import TelegramBadRequest
 
+from s3_service import storage_service
 from states import RegistrationStates, InterviewStates
 from keyboards import get_start_keyboard, get_ready_for_interview_keyboard, get_quick_questions_keyboard
 from mock_data import mock_db
-from config import RESUMES_DIR, INTERVIEW_TIME_LIMIT, INTERVIEW_QUESTIONS_COUNT, MAX_RESUME_SIZE_BYTES, MAX_RESUME_SIZE_MB
+from config import RESUMES_DIR, INTERVIEW_TIME_LIMIT, INTERVIEW_QUESTIONS_COUNT, MAX_RESUME_SIZE_BYTES, \
+    MAX_RESUME_SIZE_MB
 
 router = Router()
 
@@ -61,7 +63,7 @@ async def cmd_resume(message: Message, state: FSMContext):
     """Продолжить с места остановки"""
     # Проверяем, есть ли незавершенное интервью
     pending = mock_db.get_pending_interview(message.from_user.id)
-    
+
     if pending:
         # Есть незавершенное интервью
         candidate_data = pending.get('candidate_data', {})
@@ -140,10 +142,10 @@ async def process_phone(message: Message, state: FSMContext):
     """Обработка номера телефона"""
     # Здесь можно добавить валидацию номера
     await state.update_data(phone=message.text)
-    
+
     # Проверяем, есть ли у пользователя Telegram username
     telegram_username = message.from_user.username
-    
+
     if telegram_username:
         # Если username есть, сохраняем его и переходим к городу
         await state.update_data(telegram_username=f"@{telegram_username}")
@@ -167,11 +169,11 @@ async def process_phone(message: Message, state: FSMContext):
 async def process_telegram_username(message: Message, state: FSMContext):
     """Обработка Telegram username"""
     username = message.text.strip()
-    
+
     # Добавляем @ в начало, если пользователь забыл
     if not username.startswith('@'):
         username = f"@{username}"
-    
+
     await state.update_data(telegram_username=username)
     await state.set_state(RegistrationStates.waiting_for_city)
     await message.answer(
@@ -198,14 +200,14 @@ async def process_city(message: Message, state: FSMContext):
 async def process_resume(message: Message, state: FSMContext):
     """Обработка резюме"""
     document = message.document
-    
+
     # Проверяем формат файла
     if not (document.file_name.endswith('.pdf') or document.file_name.endswith('.docx')):
         await message.answer(
             "❌ Пожалуйста, отправьте файл в формате PDF или DOCX"
         )
         return
-    
+
     # Проверяем размер файла (до 5 МБ)
     if document.file_size > MAX_RESUME_SIZE_BYTES:
         await message.answer(
@@ -215,21 +217,37 @@ async def process_resume(message: Message, state: FSMContext):
             f"Пожалуйста, уменьшите размер файла и отправьте снова."
         )
         return
-    
-    # Сохраняем файл (заглушка, в будущем будет загрузка в S3 или хранилище)
+
+    # Сохраняем файл локально (временное хранение)
     file_path = os.path.join(RESUMES_DIR, f"{message.from_user.id}_{document.file_name}")
     await message.bot.download(document, destination=file_path)
-    
+
+    # Загружаем файл в S3
+    s3_key = None
+    if storage_service.is_available():
+        s3_key = storage_service.upload_file(file_path, message.from_user.id, document.file_name)
+
+        # Удаляем временный файл после загрузки в S3
+        try:
+            os.remove(file_path)
+            print(f"[FILE] Временный файл удален: {file_path}")
+        except Exception as e:
+            print(f"[FILE ERROR] Не удалось удалить временный файл: {e}")
+    else:
+        print("[S3 WARNING] S3 недоступен, файл сохранен локально")
+
     # Получаем все данные
     user_data = await state.get_data()
-    user_data['resume_path'] = file_path
+    user_data['resume_path'] = file_path  # Локальный путь (временный)
+    user_data['resume_filename'] = document.file_name
+    user_data['resume_s3_key'] = s3_key  # Ключ в S3
     user_data['user_id'] = message.from_user.id
-    
+
     # Сохраняем в "базу данных" (заглушка)
     mock_db.save_candidate(message.from_user.id, user_data)
-    
+
     await state.clear()
-    
+
     # Подтверждение получения данных
     try:
         confirmation = (
@@ -241,31 +259,36 @@ async def process_resume(message: Message, state: FSMContext):
             f"🏙 {user_data['city']}\n"
             f"📄 {document.file_name}"
         )
+        if s3_key:
+            confirmation += f"\n\n☁️ Резюме сохранено в облачном хранилище"
+        else:
+            confirmation += f"\n\n⚠️ Резюме сохранено локально (S3 недоступен)"
+
         await message.answer(confirmation)
-    except:
-        pass
-    
+    except Exception as e:
+        print(f"[ERROR] Ошибка отправки подтверждения: {e}")
+
     try:
         await message.answer("🔄 Проверяем резюме...")
     except:
         pass
-    
+
     # Получаем результат скрининга (заглушка)
     await asyncio.sleep(1)
     screening_result = mock_db.get_screening_result(message.from_user.id)
-    
+
     if screening_result['passed']:
         # Резюме прошло проверку - предлагаем интервью
         try:
             await message.answer("🎉 Хорошие новости!")
         except:
             pass
-        
+
         try:
             await message.answer(f"{screening_result['feedback']}")
         except:
             pass
-        
+
         try:
             await message.answer(
                 f"Приглашаем на интервью!\n"
@@ -288,7 +311,7 @@ async def process_resume(message: Message, state: FSMContext):
             await message.answer("😔 К сожалению...")
         except:
             pass
-        
+
         try:
             await message.answer(f"{screening_result['feedback']}\n\nСпасибо за интерес!")
         except:
@@ -323,26 +346,26 @@ async def start_interview_process(message: Message, state: FSMContext):
     """Общая функция запуска интервью"""
     # Удаляем запись о незавершенном интервью, так как начинаем его проходить
     mock_db.remove_pending_interview(message.from_user.id)
-    
+
     # Получаем вопросы из "базы данных" (заглушка)
     questions = mock_db.get_interview_questions()
-    
+
     await state.update_data(
         questions=questions,
         current_question=0,
         answers=[]
     )
-    
+
     try:
         await message.answer("🎯 Начинаем интервью!")
     except:
         pass
-    
+
     try:
         await message.answer("Отвечайте текстовыми сообщениями.")
     except:
         pass
-    
+
     await asyncio.sleep(1)
     await ask_question(message, state)
 
@@ -351,14 +374,14 @@ async def start_interview_process(message: Message, state: FSMContext):
 async def not_ready_for_interview(callback: CallbackQuery, state: FSMContext):
     """Кандидат не готов к интервью"""
     await callback.answer()
-    
+
     # Получаем данные кандидата из сохраненных данных
     candidate = mock_db.candidates.get(callback.from_user.id)
-    
+
     if candidate:
         # Сохраняем информацию о том, что кандидат ожидает прохождения интервью
         mock_db.save_pending_interview(callback.from_user.id, candidate)
-    
+
     await state.clear()
     await callback.message.edit_text(
         "👌 Хорошо, вы можете пройти интервью позже.\n\n"
@@ -371,23 +394,23 @@ async def ask_question(message: Message, state: FSMContext):
     data = await state.get_data()
     questions = data['questions']
     current_q = data['current_question']
-    
+
     if current_q >= len(questions):
         # Все вопросы заданы
         await finish_interview(message, state)
         return
-    
+
     await state.set_state(InterviewStates.answering_question)
-    
+
     question_msg = await message.answer(
         f"❓ <b>Вопрос {current_q + 1} из {len(questions)}:</b>\n\n"
         f"{questions[current_q]}\n\n"
         f"⏱ Обратите внимание! У вас {INTERVIEW_TIME_LIMIT} секунд на ответ.",
         parse_mode="HTML"
     )
-    
+
     await state.update_data(question_time=asyncio.get_event_loop().time())
-    
+
     # Запускаем таймер
     asyncio.create_task(question_timer(message, state, question_msg.message_id))
 
@@ -395,11 +418,11 @@ async def ask_question(message: Message, state: FSMContext):
 async def question_timer(message: Message, state: FSMContext, question_msg_id: int):
     """Таймер для вопроса"""
     await asyncio.sleep(INTERVIEW_TIME_LIMIT)
-    
+
     current_state = await state.get_state()
     if current_state == InterviewStates.answering_question:
         data = await state.get_data()
-        
+
         # Проверяем, не ответил ли пользователь за это время
         if len(data.get('answers', [])) == data['current_question']:
             # Время вышло, пропускаем вопрос
@@ -407,19 +430,19 @@ async def question_timer(message: Message, state: FSMContext, question_msg_id: i
                 answers=data.get('answers', []) + ["[ПРОПУЩЕН]"],
                 current_question=data['current_question'] + 1
             )
-            
+
             mock_db.save_interview_answer(
                 message.from_user.id,
                 data['current_question'],
                 "[ПРОПУЩЕН - время вышло]"
             )
-            
+
             await message.answer(
                 "⏰ <b>Время вышло!</b>\n\n"
                 "Вопрос пропущен. Переходим к следующему...",
                 parse_mode="HTML"
             )
-            
+
             await asyncio.sleep(2)
             await ask_question(message, state)
 
@@ -428,35 +451,35 @@ async def question_timer(message: Message, state: FSMContext, question_msg_id: i
 async def process_answer(message: Message, state: FSMContext):
     """Обработка ответа на вопрос"""
     data = await state.get_data()
-    
+
     # Проверяем, не истекло ли время
     elapsed = asyncio.get_event_loop().time() - data.get('question_time', 0)
-    
+
     if elapsed > INTERVIEW_TIME_LIMIT:
         await message.answer(
             "⏰ К сожалению, время на ответ истекло.\n"
             "Этот ответ не будет учтен."
         )
         return
-    
+
     # Сохраняем ответ
     answers = data.get('answers', [])
     answers.append(message.text)
     current_q = data['current_question']
-    
+
     # Сохраняем в "базу данных" (заглушка)
     mock_db.save_interview_answer(message.from_user.id, current_q, message.text)
-    
+
     await state.update_data(
         answers=answers,
         current_question=current_q + 1
     )
-    
+
     await message.answer(
         "✅ Ответ принят!",
         parse_mode="HTML"
     )
-    
+
     await asyncio.sleep(1)
     await ask_question(message, state)
 
@@ -467,13 +490,13 @@ async def finish_interview(message: Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state == InterviewStates.interview_completed or current_state is None:
         return  # Интервью уже завершено, выходим
-    
+
     await state.set_state(InterviewStates.interview_completed)
-    
+
     data = await state.get_data()
     answers = data.get('answers', [])
     answered = sum(1 for a in answers if a != "[ПРОПУЩЕН]")
-    
+
     await message.answer(
         f"🎊 <b>Интервью завершено!</b>\n\n"
         f"📊 Статистика:\n"
@@ -484,13 +507,13 @@ async def finish_interview(message: Message, state: FSMContext):
         f"⏳ Пожалуйста, подождите результаты проверки...",
         parse_mode="HTML"
     )
-    
+
     # Имитируем задержку анализа
     await asyncio.sleep(4)
-    
+
     # Получаем результат интервью (заглушка)
     interview_result = mock_db.get_interview_result(message.from_user.id)
-    
+
     if interview_result['passed']:
         # Прошел интервью
         await message.answer(
@@ -509,7 +532,7 @@ async def finish_interview(message: Message, state: FSMContext):
             f"Желаем успехов в карьере!",
             parse_mode="HTML"
         )
-    
+
     await state.clear()
 
 
@@ -519,10 +542,10 @@ async def finish_interview(message: Message, state: FSMContext):
 async def answer_status(callback: CallbackQuery):
     """Ответ на вопрос о статусе"""
     await callback.answer()
-    
+
     # Получаем статус из "базы данных" (заглушка)
     status_data = mock_db.get_candidate_status(callback.from_user.id)
-    
+
     await callback.message.answer(
         f"📊 <b>Ваш текущий статус:</b>\n\n"
         f"🔹 {status_data['text']}\n\n"
@@ -536,10 +559,10 @@ async def answer_status(callback: CallbackQuery):
 async def answer_timing(callback: CallbackQuery):
     """Ответ на вопрос о сроках"""
     await callback.answer()
-    
+
     # Получаем информацию о сроках (заглушка)
     timing_info = mock_db.get_timing_info()
-    
+
     await callback.message.answer(
         timing_info,
         parse_mode="HTML"
@@ -550,10 +573,10 @@ async def answer_timing(callback: CallbackQuery):
 async def answer_contact(callback: CallbackQuery):
     """Ответ на вопрос о контактах"""
     await callback.answer()
-    
+
     # Получаем контактную информацию (заглушка)
     contact_info = mock_db.get_contact_info()
-    
+
     await callback.message.answer(
         contact_info,
         parse_mode="HTML"
