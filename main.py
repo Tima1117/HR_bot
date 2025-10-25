@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 async def set_bot_commands(bot: Bot):
     """Установка команд бота для меню"""
     commands = [
-        BotCommand(command="start", description="🚀 Начать работу с ботом"),
         BotCommand(command="resume", description="▶️ Продолжить интервью"),
         BotCommand(command="questions", description="❓ Часто задаваемые вопросы"),
         BotCommand(command="cancel", description="❌ Отменить текущий процесс"),

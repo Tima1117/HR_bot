@@ -1,13 +1,22 @@
 """
 Сервис для работы с Yandex Object Storage (S3-совместимое API)
 """
+import logging
+import sys
 import uuid
 
 import boto3
 from botocore.client import Config
 from botocore.exceptions import ClientError, NoCredentialsError
 
-from config import YC_ACCESS_KEY_ID, YC_SECRET_ACCESS_KEY, YC_REGION, YC_BUCKET_NAME, YC_ENDPOINT_URL
+from config import YC_ACCESS_KEY_ID, YC_SECRET_ACCESS_KEY, YC_BUCKET_NAME, YC_ENDPOINT_URL
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
 
 class YandexStorageService:
@@ -27,17 +36,16 @@ class YandexStorageService:
                 if not YC_ACCESS_KEY_ID: missing.append('YC_ACCESS_KEY_ID')
                 if not YC_SECRET_ACCESS_KEY: missing.append('YC_SECRET_ACCESS_KEY')
                 if not YC_BUCKET_NAME: missing.append('YC_BUCKET_NAME')
-                print(f"[YC STORAGE ERROR] Отсутствуют переменные окружения: {', '.join(missing)}")
+                logger.error(f"Отсутствуют переменные окружения: {', '.join(missing)}")
                 self.s3_client = None
                 return
 
-            print(f"[YC STORAGE] Инициализация подключения к бакету: {self.bucket_name}")
+            logger.info(f"Инициализация подключения к бакету: {self.bucket_name}")
             self.s3_client = boto3.client(
                 's3',
                 endpoint_url=self.endpoint_url,
                 aws_access_key_id=YC_ACCESS_KEY_ID,
                 aws_secret_access_key=YC_SECRET_ACCESS_KEY,
-                region_name=YC_REGION,
                 config=Config(
                     s3={'addressing_style': 'virtual'},
                     retries={'max_attempts': 3, 'mode': 'standard'}
@@ -45,13 +53,13 @@ class YandexStorageService:
             )
 
             self._check_connection()
-            print(f"[YC STORAGE] Успешно подключен к бакету: {self.bucket_name}")
+            logger.info(f"Успешно подключен к бакету: {self.bucket_name}")
 
         except NoCredentialsError:
-            print("[YC STORAGE ERROR] Не найдены credentials для Yandex Cloud")
+            logger.error("Не найдены credentials для Yandex Cloud")
             self.s3_client = None
         except Exception as e:
-            print(f"[YC STORAGE ERROR] Ошибка инициализации: {str(e)}")
+            logger.error(f"Ошибка инициализации: {str(e)}")
             self.s3_client = None
 
     def _check_connection(self):
@@ -62,19 +70,19 @@ class YandexStorageService:
         try:
             # Проверяем доступность бакета
             self.s3_client.head_bucket(Bucket=self.bucket_name)
-            print(f"[YC STORAGE] Бакет {self.bucket_name} доступен")
+            logger.info(f"Бакет {self.bucket_name} доступен")
 
             # Дополнительная проверка - список объектов (если есть права)
             try:
                 self.s3_client.list_objects_v2(Bucket=self.bucket_name, MaxKeys=1)
-                print(f"[YC STORAGE] Права на чтение: OK")
+                logger.info(f"Права на чтение: OK")
             except ClientError as e:
-                print(f"[YC STORAGE] Права на чтение: ограничены ({e.response['Error']['Code']})")
+                logger.error(f"Права на чтение: ограничены ({e.response['Error']['Code']})")
 
         except ClientError as e:
             error_code = e.response['Error']['Code']
             error_message = e.response['Error']['Message']
-            print(f"[YC STORAGE ERROR] Ошибка доступа к бакету: {error_code} - {error_message}")
+            logger.error(f"Ошибка доступа к бакету: {error_code} - {error_message}")
             raise
 
     def upload_file(self, file_path: str, tg_id: int, vacancy_id: uuid) -> str:
@@ -82,13 +90,12 @@ class YandexStorageService:
         Загрузка файла в Yandex Object Storage
         """
         if not self.s3_client:
-            print("[YC STORAGE ERROR] Клиент не инициализирован, загрузка невозможна")
+            logger.error("Клиент не инициализирован, загрузка невозможна")
             return None
 
         try:
             s3_key = f"{tg_id}/{vacancy_id}"
 
-            print(f"[YC STORAGE] Загрузка файла: {s3_key}")
             self.s3_client.upload_file(
                 file_path,
                 self.bucket_name,
@@ -99,17 +106,15 @@ class YandexStorageService:
                     }
                 }
             )
-
-            print(f"[YC STORAGE] Файл успешно загружен: {s3_key}")
             return s3_key
 
         except ClientError as e:
             error_code = e.response['Error']['Code']
             error_message = e.response['Error']['Message']
-            print(f"[YC STORAGE ERROR] Ошибка загрузки файла: {error_code} - {error_message}")
+            logger.error(f"Ошибка загрузки файла: {error_code} - {error_message}")
             return None
         except Exception as e:
-            print(f"[YC STORAGE ERROR] Неожиданная ошибка при загрузке: {e}")
+            logger.error(f"Неожиданная ошибка при загрузке: {e}")
             return None
 
     def get_file_url(self, s3_key: str, expires_in: int = 3600) -> str:
@@ -124,7 +129,7 @@ class YandexStorageService:
             )
             return url
         except ClientError as e:
-            print(f"[YC STORAGE ERROR] Ошибка генерации ссылки: {e}")
+            logger.error(f"Ошибка генерации ссылки: {e}")
             return None
 
     def delete_file(self, s3_key: str) -> bool:
@@ -133,10 +138,9 @@ class YandexStorageService:
             return False
         try:
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
-            print(f"[YC STORAGE] Файл удален: {s3_key}")
             return True
         except ClientError as e:
-            print(f"[YC STORAGE ERROR] Ошибка удаления файла: {e}")
+            logger.error(f"Ошибка удаления файла: {e}")
             return False
 
     def is_available(self) -> bool:

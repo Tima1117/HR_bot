@@ -3,13 +3,16 @@
 Обработчики команд и сообщений бота
 """
 import asyncio
+import logging
 import os
+import sys
 
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 
+from backend_client import get_backend_client
 from config import INTERVIEW_TIME_LIMIT, INTERVIEW_QUESTIONS_COUNT, MAX_RESUME_SIZE_BYTES, \
     MAX_RESUME_SIZE_MB, RESUMES_DIR
 from keyboards import get_start_keyboard, get_ready_for_interview_keyboard, get_quick_questions_keyboard
@@ -18,7 +21,14 @@ from s3_service import storage_service
 from states import RegistrationStates, InterviewStates
 from util import is_valid_phone
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 router = Router()
+backend_client = get_backend_client()
 
 
 # ==================== КОМАНДЫ ====================
@@ -33,6 +43,16 @@ async def cmd_start(message: Message, state: FSMContext):
         start_param = message.text.split()[1]
 
     if start_param:
+        res = await backend_client.get_candidate(message.from_user.id)
+
+        if res:
+            await state.update_data(candidate_id=res['id'])
+            await message.answer(
+                f"👋 С возвращением, {res.get('full_name', 'кандидат')}!\n\n",
+                parse_mode="HTML"
+            )
+            return
+
         await state.update_data(vacancy_id=start_param)
 
         answer_text = (
@@ -47,7 +67,7 @@ async def cmd_start(message: Message, state: FSMContext):
     else:
         error_text = (
             "❌ <b>Ошибка</b>\n\n"
-            "Для начала работы выполните команду /start с уникальным идентификатором вакансии.\n\n"
+            "Для начала работы перейдите по ссылке от рекрутера.\n\n"
             "Обратитесь к HR-специалисту для получения корректной ссылки."
         )
         await message.answer(error_text, parse_mode="HTML")
@@ -59,7 +79,7 @@ async def cmd_cancel(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         "❌ Процесс отменен.\n\n"
-        "Используйте /start чтобы начать заново.",
+        "Используйте ссылку от рекрутера, чтобы начать заново.",
         reply_markup=get_start_keyboard()
     )
 
@@ -97,7 +117,7 @@ async def cmd_resume(message: Message, state: FSMContext):
         # Нет незавершенных интервью
         await message.answer(
             "У вас нет незавершенных интервью.\n\n"
-            "Используйте /start чтобы начать процесс отбора."
+            "Используйте ссылку от рекрутера, чтобы начать новое интервью.",
         )
 
 
@@ -121,7 +141,6 @@ async def process_phone(message: Message, state: FSMContext):
     """Обработка номера телефона"""
     phone = message.text.strip()
 
-    # Валидация номера телефона
     if not is_valid_phone(phone):
         await message.answer(
             "❌ <b>Неверный формат номера телефона!</b>\n\n"
@@ -174,14 +193,40 @@ async def process_telegram_username(message: Message, state: FSMContext):
 @router.message(RegistrationStates.waiting_for_city)
 async def process_city(message: Message, state: FSMContext):
     """Обработка города"""
-    await state.update_data(city=message.text)
-    await state.set_state(RegistrationStates.waiting_for_resume)
-    await message.answer(
-        "✅ Принято!\n\n"
-        f"📎 Теперь отправьте ваше <b>резюме</b> в формате PDF или DOCX\n"
-        f"(максимальный размер: {MAX_RESUME_SIZE_MB} МБ):",
-        parse_mode="HTML"
-    )
+    city = message.text.strip()
+    await state.update_data(city=city)
+
+    user_data = await state.get_data()
+    candidate_data = {
+        'telegram_id': message.from_user.id,
+        'full_name': user_data.get('name'),
+        'phone': user_data.get('phone'),
+        'city': city
+    }
+
+    try:
+        result = await backend_client.create_candidate(candidate_data)
+
+        if result:
+            await message.answer(
+                "✅ Данные сохранены!\n\n"
+                f"📎 Теперь отправьте ваше <b>резюме</b> в формате PDF или DOCX\n"
+                f"(максимальный размер: {MAX_RESUME_SIZE_MB} МБ):",
+                parse_mode="HTML"
+            )
+            await state.update_data(candidate_id=result['id'])
+            await state.set_state(RegistrationStates.waiting_for_resume)
+        else:
+            error_msg = result.get('error', 'Unknown error') if result else 'No response'
+            status_code = result.get('status_code', 'No status') if result else 'No status'
+            logger.error(f"Failed to create candidate. Status: {status_code}, Error: {error_msg}")
+            await message.answer("❌ Проблемы с подключением, повторите попытку позже")
+            await state.clear()
+
+    except Exception as e:
+        logger.error(f"Exception in create_candidate: {e}")
+        await message.answer("❌ Проблемы с подключением, повторите попытку позже")
+        await state.clear()
 
 
 @router.message(RegistrationStates.waiting_for_resume, F.document)
@@ -206,32 +251,25 @@ async def process_resume(message: Message, state: FSMContext):
         )
         return
 
-    # Сохраняем файл локально (временное хранение)
-    file_path = os.path.join(RESUMES_DIR, f"{message.from_user.id}_{document.file_name}")
-    await message.bot.download(document, destination=file_path)
-
     user_data = await state.get_data()
+    vacancy_id = user_data["vacancy_id"]
+    candidate_id = user_data["candidate_id"]
+
+    # Сохраняем файл локально (временное хранение)
+    file_path = os.path.join(RESUMES_DIR, f"{candidate_id}_{vacancy_id}")
+    await message.bot.download(document, destination=file_path)
 
     # Загружаем файл в S3
     s3_key = None
     if storage_service.is_available():
-        s3_key = storage_service.upload_file(file_path, message.from_user.id, user_data["vacancy_id"])
+        s3_key = storage_service.upload_file(file_path, candidate_id, vacancy_id)
         try:
             os.remove(file_path)
-            print(f"[FILE] Временный файл удален: {file_path}")
         except Exception as e:
-            print(f"[FILE ERROR] Не удалось удалить временный файл: {e}")
+            logger.error(f"Can't delete temp file: {e}")
     else:
-        print("[S3 WARNING] S3 недоступен, файл сохранен локально")
-
-    # Дополняем данные
-    user_data['resume_path'] = file_path  # Локальный путь (временный)
-    user_data['resume_filename'] = document.file_name
-    user_data['resume_s3_key'] = s3_key  # Ключ в S3
-    user_data['user_id'] = message.from_user.id
-
-    # Сохраняем в "базу данных" (заглушка)
-    mock_db.save_candidate(message.from_user.id, user_data)
+        logger.error("S3 unavailable")
+        return
 
     await state.clear()
 
@@ -239,8 +277,7 @@ async def process_resume(message: Message, state: FSMContext):
     try:
         confirmation = (
             f"✅ Данные приняты!\n\n"
-            f"💼 Вакансия: {user_data.get('vacancy_name', 'не указана')}\n"
-            f"👤 {user_data['first_name']} {user_data['last_name']}\n"
+            f"👤 {user_data['name']}\n"
             f"📱 {user_data['phone']}\n"
             f"💬 {user_data.get('telegram_username', 'не указан')}\n"
             f"🏙 {user_data['city']}\n"
@@ -253,56 +290,58 @@ async def process_resume(message: Message, state: FSMContext):
 
         await message.answer(confirmation)
     except Exception as e:
-        print(f"[ERROR] Ошибка отправки подтверждения: {e}")
+        logger.error(f"Error in s3: {e}")
+        await message.answer("❌ Проблемы с подключением, повторите попытку позже")
+        return
 
-    try:
-        await message.answer("🔄 Проверяем резюме...")
-    except:
-        pass
+    # Запуск скрининга
+    await backend_client.process_screening(candidate_id, vacancy_id)
+    await asyncio.sleep(15)
 
-    # Получаем результат скрининга (заглушка)
-    await asyncio.sleep(1)
-    screening_result = mock_db.get_screening_result(message.from_user.id)
-
-    if screening_result['passed']:
-        # Резюме прошло проверку - предлагаем интервью
-        try:
-            await message.answer("🎉 Хорошие новости!")
-        except:
-            pass
-
-        try:
-            await message.answer(f"{screening_result['feedback']}")
-        except:
-            pass
-
-        try:
-            await message.answer(
-                f"Приглашаем на интервью!\n"
-                f"Вопросов: {INTERVIEW_QUESTIONS_COUNT}\n"
-                f"Время на ответ: {INTERVIEW_TIME_LIMIT} сек",
-                reply_markup=get_ready_for_interview_keyboard()
-            )
-            await state.set_state(InterviewStates.waiting_for_start)
-        except Exception as e:
-            print(f"[ERROR] Не удалось отправить приглашение на интервью: {e}")
-            # Последняя попытка - без клавиатуры
+    # Получаем результат скрининга
+    screening_result = await backend_client.get_screening_result(candidate_id, vacancy_id)
+    if screening_result:
+        if screening_result['passed']:
+            # Резюме прошло проверку - предлагаем интервью
             try:
-                await message.answer("Готовы к интервью? Напишите 'да'")
-                await state.set_state(InterviewStates.waiting_for_start)
+                await message.answer("🎉 Хорошие новости!")
             except:
-                print("[ERROR] Полный отказ отправки сообщений")
-    else:
-        # Резюме не прошло проверку
-        try:
-            await message.answer("😔 К сожалению...")
-        except:
-            pass
+                pass
 
-        try:
-            await message.answer(f"{screening_result['feedback']}\n\nСпасибо за интерес!")
-        except:
-            pass
+            try:
+                await message.answer(f"{screening_result['feedback']}")
+            except:
+                pass
+
+            try:
+                await message.answer(
+                    f"Приглашаем на интервью!\n"
+                    f"Вопросов: {INTERVIEW_QUESTIONS_COUNT}\n"
+                    f"Время на ответ: {INTERVIEW_TIME_LIMIT} сек",
+                    reply_markup=get_ready_for_interview_keyboard()
+                )
+                await state.set_state(InterviewStates.waiting_for_start)
+            except Exception as e:
+                logger.error(f"error in send invitation to an interview: {e}")
+                try:
+                    await message.answer("Готовы к интервью? Напишите 'да'")
+                    await state.set_state(InterviewStates.waiting_for_start)
+                except:
+                    logger.error("error in send invitation")
+        else:
+            # Резюме не прошло проверку
+            try:
+                await message.answer("😔 К сожалению...")
+            except:
+                pass
+
+            try:
+                await message.answer(f"{screening_result['feedback']}\n\nСпасибо за интерес!")
+            except:
+                pass
+    else:
+        logger.error(f"Empty in get screening result")
+        await message.answer("❌ Проблемы с подключением, повторите попытку позже")
 
 
 @router.message(RegistrationStates.waiting_for_resume)
