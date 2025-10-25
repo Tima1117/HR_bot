@@ -4,18 +4,19 @@
 """
 import asyncio
 import os
-from aiogram import Router, F
-from aiogram.filters import Command, StateFilter
-from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, ContentType
-from aiogram.exceptions import TelegramBadRequest
 
-from s3_service import storage_service
-from states import RegistrationStates, InterviewStates
+from aiogram import Router, F
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.types import Message, CallbackQuery
+
+from config import INTERVIEW_TIME_LIMIT, INTERVIEW_QUESTIONS_COUNT, MAX_RESUME_SIZE_BYTES, \
+    MAX_RESUME_SIZE_MB, RESUMES_DIR
 from keyboards import get_start_keyboard, get_ready_for_interview_keyboard, get_quick_questions_keyboard
 from mock_data import mock_db
-from config import RESUMES_DIR, INTERVIEW_TIME_LIMIT, INTERVIEW_QUESTIONS_COUNT, MAX_RESUME_SIZE_BYTES, \
-    MAX_RESUME_SIZE_MB
+from s3_service import storage_service
+from states import RegistrationStates, InterviewStates
+from util import is_valid_phone
 
 router = Router()
 
@@ -26,14 +27,30 @@ router = Router()
 async def cmd_start(message: Message, state: FSMContext):
     """Обработка команды /start"""
     await state.clear()
-    await state.set_state(RegistrationStates.waiting_for_vacancy)
-    await message.answer(
-        "👋 Добро пожаловать!\n\n"
-        "Я помогу вам пройти процесс отбора.\n\n"
-        "📋 Для начала укажите <b>название вакансии</b>, на которую вы откликаетесь.\n\n"
-        "Введите название вакансии (Введите название вакансии так, как оно указано на сайте ,например: Python-разработчик):",
-        parse_mode="HTML"
-    )
+
+    start_param = None
+    if message.text and len(message.text.split()) > 1:
+        start_param = message.text.split()[1]
+
+    if start_param:
+        await state.update_data(vacancy_id=start_param)
+
+        answer_text = (
+            "👋 Добро пожаловать!\n\n"
+            "Я помогу вам пройти процесс отбора.\n\n"
+            "📝 Приступим к сбору ваших данных.\n\n"
+            "Пожалуйста, введите ваше <b>ФИО</b>:"
+        )
+
+        await state.set_state(RegistrationStates.waiting_for_name)
+        await message.answer(answer_text, parse_mode="HTML")
+    else:
+        error_text = (
+            "❌ <b>Ошибка</b>\n\n"
+            "Для начала работы выполните команду /start с уникальным идентификатором вакансии.\n\n"
+            "Обратитесь к HR-специалисту для получения корректной ссылки."
+        )
+        await message.answer(error_text, parse_mode="HTML")
 
 
 @router.message(Command("cancel"))
@@ -85,20 +102,6 @@ async def cmd_resume(message: Message, state: FSMContext):
 
 
 # ==================== РЕГИСТРАЦИЯ ====================
-
-@router.message(RegistrationStates.waiting_for_vacancy)
-async def process_vacancy(message: Message, state: FSMContext):
-    """Обработка названия вакансии"""
-    vacancy_name = message.text.strip()
-    await state.update_data(vacancy_name=vacancy_name)
-    await state.set_state(RegistrationStates.waiting_for_name)
-    await message.answer(
-        f"✅ Отлично! Вакансия: <b>{vacancy_name}</b>\n\n"
-        "📝 Теперь приступим к сбору ваших данных.\n\n"
-        "Пожалуйста, введите ваше <b>ФИО</b>:",
-        parse_mode="HTML"
-    )
-
 
 @router.message(RegistrationStates.waiting_for_name)
 async def process_name(message: Message, state: FSMContext):
@@ -207,12 +210,12 @@ async def process_resume(message: Message, state: FSMContext):
     file_path = os.path.join(RESUMES_DIR, f"{message.from_user.id}_{document.file_name}")
     await message.bot.download(document, destination=file_path)
 
+    user_data = await state.get_data()
+
     # Загружаем файл в S3
     s3_key = None
     if storage_service.is_available():
-        s3_key = storage_service.upload_file(file_path, message.from_user.id, document.file_name)
-
-        # Удаляем временный файл после загрузки в S3
+        s3_key = storage_service.upload_file(file_path, message.from_user.id, user_data["vacancy_id"])
         try:
             os.remove(file_path)
             print(f"[FILE] Временный файл удален: {file_path}")
@@ -221,8 +224,7 @@ async def process_resume(message: Message, state: FSMContext):
     else:
         print("[S3 WARNING] S3 недоступен, файл сохранен локально")
 
-    # Получаем все данные
-    user_data = await state.get_data()
+    # Дополняем данные
     user_data['resume_path'] = file_path  # Локальный путь (временный)
     user_data['resume_filename'] = document.file_name
     user_data['resume_s3_key'] = s3_key  # Ключ в S3
