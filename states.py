@@ -7,9 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 class RegistrationStates(StatesGroup):
     """Состояния для регистрации кандидата"""
     waiting_for_vacancy = State()
-    waiting_for_first_name = State()
-    waiting_for_last_name = State()
-    waiting_for_middle_name = State()
+    waiting_for_name = State()
     waiting_for_phone = State()
     waiting_for_telegram_username = State()
     waiting_for_city = State()
