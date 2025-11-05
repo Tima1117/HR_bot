@@ -40,7 +40,6 @@ class YandexStorageService:
                 self.s3_client = None
                 return
 
-            logger.info(f"Инициализация подключения к бакету: {self.bucket_name}")
             self.s3_client = boto3.client(
                 's3',
                 endpoint_url=self.endpoint_url,
@@ -53,7 +52,6 @@ class YandexStorageService:
             )
 
             self._check_connection()
-            logger.info(f"Успешно подключен к бакету: {self.bucket_name}")
 
         except NoCredentialsError:
             logger.error("Не найдены credentials для Yandex Cloud")
@@ -70,12 +68,11 @@ class YandexStorageService:
         try:
             # Проверяем доступность бакета
             self.s3_client.head_bucket(Bucket=self.bucket_name)
-            logger.info(f"Бакет {self.bucket_name} доступен")
+            logger.info(f"Bucket '{self.bucket_name}' available")
 
             # Дополнительная проверка - список объектов (если есть права)
             try:
                 self.s3_client.list_objects_v2(Bucket=self.bucket_name, MaxKeys=1)
-                logger.info(f"Права на чтение: OK")
             except ClientError as e:
                 logger.error(f"Права на чтение: ограничены ({e.response['Error']['Code']})")
 
