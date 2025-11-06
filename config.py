@@ -13,7 +13,6 @@ BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_ID = os.getenv('ADMIN_ID')
 
 # Параметры интервью
-INTERVIEW_TIME_LIMIT = 60  # секунды на ответ
 INTERVIEW_QUESTIONS_COUNT = 5  # количество вопросов
 
 # Директория для временного сохранения резюме

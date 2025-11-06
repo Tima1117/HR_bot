@@ -8,7 +8,7 @@ def get_start_keyboard() -> ReplyKeyboardMarkup:
     """Клавиатура для начала работы"""
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Начать регистрацию")]
+            [KeyboardButton(text="Продолжить")]
         ],
         resize_keyboard=True
     )

@@ -25,12 +25,10 @@ logger = logging.getLogger(__name__)
 async def set_bot_commands(bot: Bot):
     """Установка команд бота для меню"""
     commands = [
-        BotCommand(command="resume", description="▶️ Продолжить интервью"),
+        BotCommand(command="resume", description="▶️ Продолжить"),
         BotCommand(command="questions", description="❓ Часто задаваемые вопросы"),
-        BotCommand(command="cancel", description="❌ Отменить текущий процесс"),
     ]
     await bot.set_my_commands(commands)
-    logger.info("Команды бота установлены")
 
 
 async def main():
@@ -51,8 +49,6 @@ async def main():
 
     # Установка команд для меню
     await set_bot_commands(bot)
-
-    logger.info("Бот запущен!")
 
     try:
         # Удаляем старые обновления и запускаем polling

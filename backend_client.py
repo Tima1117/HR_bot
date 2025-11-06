@@ -5,7 +5,7 @@ import asyncio
 import logging
 import os
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 import aiohttp
 
@@ -91,14 +91,32 @@ class BackendClient:
         api_data = {k: v for k, v in api_data.items() if v is not None}
         return await self._make_request('POST', f'/api/v1/screening/process', api_data)
 
-    async def get_screening_result(self, candidate_id: int, vacancy_id: uuid) -> Optional[Dict[str, Any]]:
-        return await self._make_request('GET', f'/api/v1/screening/result/{candidate_id}/{vacancy_id}')
-
     # ==================== ИНТЕРВЬЮ ====================
+
+    async def get_questions_by_vacancy_id(self, vacancy_id: uuid) -> Optional[List[Dict[str, Any]]]:
+        return await self._make_request('GET', f'/api/v1/questions/{vacancy_id}')
+
+    async def post_answer_by_question_id(self, candidate_id: int, question_id: uuid, answer: str, time_taken: int) -> \
+            Optional[Dict[str, Any]]:
+        api_data = {
+            'candidate_id': candidate_id,
+            'question_id': question_id,
+            'content': answer,
+            'time_taken': time_taken,
+        }
+        return await self._make_request('POST', f'/api/v1/answer', api_data)
+
+    async def post_update_status(self, candidate_id: int, vacancy_id: uuid) -> Optional[Dict[str, Any]]:
+        api_data = {
+            'candidate_id': candidate_id,
+            'vacancy_id': vacancy_id,
+        }
+        return await self._make_request('POST', f'/api/v1/interview/process', api_data)
 
     # ==================== СТАТУСЫ И УВЕДОМЛЕНИЯ ====================
 
-    # ==================== ФАЙЛЫ И РЕЗЮМЕ ====================
+    async def get_screening_status(self, candidate_id: int, vacancy_id: uuid) -> Optional[Dict[str, Any]]:
+        return await self._make_request('GET', f'/api/v1/meta/{candidate_id}/{vacancy_id}')
 
 
 # Синглтон экземпляр клиента

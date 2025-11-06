@@ -19,4 +19,5 @@ class InterviewStates(StatesGroup):
     waiting_for_start = State()
     answering_question = State()
     interview_completed = State()
-
+    rejected = State()
+    passed = State()
