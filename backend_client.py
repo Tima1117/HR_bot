@@ -79,7 +79,7 @@ class BackendClient:
             'full_name': candidate_data.get('full_name'),
             'phone': candidate_data.get('phone'),
             'city': candidate_data.get('city'),
-            'telegram_username': candidate_data.get('telegram_username'),
+            'telegram_username': candidate_data.get('telegram_username').lstrip('@'),
         }
         api_data = {k: v for k, v in api_data.items() if v is not None}
         return await self._make_request('POST', '/api/v1/candidate', api_data)
