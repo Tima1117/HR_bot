@@ -43,12 +43,16 @@ async def cmd_start(message: Message, state: FSMContext):
         start_param = message.text.split()[1]
 
     if start_param:
-        res = await backend_client.get_candidate(message.from_user.id)
+        res, _ = await backend_client.get_candidate(message.from_user.id)
 
         if res:
             await state.update_data(
                 candidate_id=res['id'],
                 vacancy_id=start_param,
+                name=res['full_name'],
+                phone=res['phone'],
+                city=res['city'],
+                telegram_username=message.from_user.username,
             )
             await cmd_resume(message, state)
             return
@@ -95,12 +99,16 @@ async def cmd_resume(message: Message, state: FSMContext):
 
         # Если нет данных в состоянии, пытаемся найти кандидата
         if not candidate_id:
-            candidate_data = await backend_client.get_candidate(message.from_user.id)
-            if candidate_data:
-                candidate_id = candidate_data['id']
+            res, _ = await backend_client.get_candidate(message.from_user.id)
+            if res:
+                candidate_id = res['id']
                 await state.update_data(
                     candidate_id=candidate_id,
-                    vacancy_id=vacancy_id
+                    vacancy_id=vacancy_id,
+                    name=res['full_name'],
+                    phone=res['phone'],
+                    city=res['city'],
+                    telegram_username=message.from_user.username,
                 )
 
         # Если все еще нет candidate_id или vacancy_id, значит нет активного интервью
@@ -112,8 +120,15 @@ async def cmd_resume(message: Message, state: FSMContext):
             return
 
         # Проверяем статус скрининга
-        meta = await backend_client.get_screening_status(candidate_id, vacancy_id)
-
+        meta, code = await backend_client.get_screening_status(candidate_id, vacancy_id)
+        if code == 404:
+            await message.answer(
+                f"📎 Теперь отправьте ваше <b>резюме</b> в формате PDF\n"
+                f"(максимальный размер: {MAX_RESUME_SIZE_MB} МБ):",
+                parse_mode="HTML"
+            )
+            await state.set_state(RegistrationStates.waiting_for_resume)
+            return
         if not meta:
             await message.answer(
                 "❌ Не удалось получить информацию о вашем интервью.\n\n"
@@ -161,7 +176,7 @@ async def cmd_resume(message: Message, state: FSMContext):
             # Неизвестный статус или процесс еще не начат
             await message.answer(
                 "У вас нет активных интервью.\n\n"
-                "Используйте ссылку от рекрутера, чтобы начать новый процесс отбора.",
+                "Используйте ссылку от HR-менеджера, чтобы начать новый процесс отбора.",
             )
     except Exception as e:
         logger.error(f"Error in /resume command: {e}")
@@ -169,6 +184,7 @@ async def cmd_resume(message: Message, state: FSMContext):
             "❌ Произошла ошибка при проверке статуса интервью.\n\n"
             "Пожалуйста, попробуйте позже или используйте ссылку от рекрутера для нового интервью.",
         )
+
 
 # ==================== РЕГИСТРАЦИЯ ====================
 
@@ -250,11 +266,12 @@ async def process_city(message: Message, state: FSMContext):
         'telegram_id': message.from_user.id,
         'full_name': user_data.get('name'),
         'phone': user_data.get('phone'),
-        'city': city
+        'city': city,
+        'telegram_username': user_data.get('telegram_username'),
     }
 
     try:
-        result = await backend_client.create_candidate(candidate_data)
+        result, _ = await backend_client.create_candidate(candidate_data)
 
         if result:
             await message.answer(
@@ -343,7 +360,12 @@ async def process_resume(message: Message, state: FSMContext):
     await backend_client.process_screening(candidate_id, vacancy_id)
 
     # Получаем результат скрининга
-    screening_result = await backend_client.get_screening_status(candidate_id, vacancy_id)
+    screening_result, code = await backend_client.get_screening_status(candidate_id, vacancy_id)
+    if code == 404:
+        await message.answer(
+            f"❌ Вы пытаетесь подать резюме на несуществующую вакансию.\n",
+            f"Свяжитесь с HR-менеджером для уточнения деталей."
+        )
     if screening_result:
         if screening_result['status'] == "screening_ok":
             # Резюме прошло проверку - предлагаем интервью
@@ -397,7 +419,7 @@ async def start_interview_process(message: Message, state: FSMContext):
     user_data = await state.get_data()
     vacancy_id = user_data["vacancy_id"]
 
-    questions = await backend_client.get_questions_by_vacancy_id(vacancy_id)
+    questions, _ = await backend_client.get_questions_by_vacancy_id(vacancy_id)
 
     await state.update_data(
         questions=questions,
@@ -594,7 +616,7 @@ async def finish_interview(message: Message, state: FSMContext):
 
     # Получаем результат интервью
     await backend_client.post_update_status(candidate_id, vacancy_id)
-    interview_result = await backend_client.get_screening_status(candidate_id, vacancy_id)
+    interview_result, _ = await backend_client.get_screening_status(candidate_id, vacancy_id)
     if interview_result['status'] == "interview_ok":
         # Прошел интервью
         await state.set_state(InterviewStates.passed)

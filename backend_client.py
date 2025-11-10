@@ -24,7 +24,7 @@ class BackendClient:
         """
         self.base_url = base_url.rstrip('/')
 
-    async def _make_request(self, method: str, endpoint: str, data: Dict = None) -> Optional[Dict[str, Any]]:
+    async def _make_request(self, method: str, endpoint: str, data: Dict = None) -> (Optional[Dict[str, Any]], int):
         """
         Базовый метод для выполнения HTTP запросов
 
@@ -48,13 +48,15 @@ class BackendClient:
                         ssl=False,
                 ) as response:
                     if response.status == 200 or response.status == 201:
-                        return await response.json()
+                        return await response.json(), response.status
                     elif response.status == 204:
-                        return {}  # No content
+                        return {}, response.status  # No content
+                    elif response.status == 404:
+                        return {}, response.status
                     else:
                         error_text = await response.text()
                         logger.error(f"API error {response.status}: {error_text}")
-                        return None
+                        return {}, response.status
 
         except aiohttp.ClientError as e:
             logger.error(f"HTTP client error: {e}")
@@ -68,22 +70,23 @@ class BackendClient:
 
     # ==================== КАНДИДАТ ====================
 
-    async def get_candidate(self, telegram_id: int) -> Optional[Dict[str, Any]]:
+    async def get_candidate(self, telegram_id: int) -> (Optional[Dict[str, Any]], int):
         return await self._make_request('GET', f'/api/v1/candidates/by-tg-id/{telegram_id}')
 
-    async def create_candidate(self, candidate_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def create_candidate(self, candidate_data: Dict[str, Any]) -> (Optional[Dict[str, Any]], int):
         api_data = {
             'telegram_id': candidate_data.get('telegram_id'),
             'full_name': candidate_data.get('full_name'),
             'phone': candidate_data.get('phone'),
-            'city': candidate_data.get('city')
+            'city': candidate_data.get('city'),
+            'telegram_username': candidate_data.get('telegram_username'),
         }
         api_data = {k: v for k, v in api_data.items() if v is not None}
         return await self._make_request('POST', '/api/v1/candidate', api_data)
 
     # ==================== СКРИНИНГ РЕЗЮМЕ ====================
 
-    async def process_screening(self, candidate_id: int, vacancy_id: uuid) -> Optional[Dict[str, Any]]:
+    async def process_screening(self, candidate_id: int, vacancy_id: uuid) -> (Optional[Dict[str, Any]], int):
         api_data = {
             'candidate_id': candidate_id,
             'vacancy_id': vacancy_id,
@@ -93,11 +96,11 @@ class BackendClient:
 
     # ==================== ИНТЕРВЬЮ ====================
 
-    async def get_questions_by_vacancy_id(self, vacancy_id: uuid) -> Optional[List[Dict[str, Any]]]:
+    async def get_questions_by_vacancy_id(self, vacancy_id: uuid) -> (Optional[List[Dict[str, Any]]], int):
         return await self._make_request('GET', f'/api/v1/questions/{vacancy_id}')
 
     async def post_answer_by_question_id(self, candidate_id: int, question_id: uuid, answer: str, time_taken: int) -> \
-            Optional[Dict[str, Any]]:
+            (Optional[Dict[str, Any]], int):
         api_data = {
             'candidate_id': candidate_id,
             'question_id': question_id,
@@ -106,7 +109,7 @@ class BackendClient:
         }
         return await self._make_request('POST', f'/api/v1/answer', api_data)
 
-    async def post_update_status(self, candidate_id: int, vacancy_id: uuid) -> Optional[Dict[str, Any]]:
+    async def post_update_status(self, candidate_id: int, vacancy_id: uuid) -> (Optional[Dict[str, Any]], int):
         api_data = {
             'candidate_id': candidate_id,
             'vacancy_id': vacancy_id,
@@ -115,7 +118,7 @@ class BackendClient:
 
     # ==================== СТАТУСЫ И УВЕДОМЛЕНИЯ ====================
 
-    async def get_screening_status(self, candidate_id: int, vacancy_id: uuid) -> Optional[Dict[str, Any]]:
+    async def get_screening_status(self, candidate_id: int, vacancy_id: uuid) -> (Optional[Dict[str, Any]], int):
         return await self._make_request('GET', f'/api/v1/meta/{candidate_id}/{vacancy_id}')
 
 
