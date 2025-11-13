@@ -7,77 +7,12 @@ import random
 
 class MockDatabase:
     """Имитация работы с базой данных"""
-    
+
     def __init__(self):
         self.candidates = {}
         self.interview_results = {}
         self.pending_interviews = {}  # Кандидаты, ожидающие прохождения интервью
-    
-    def save_candidate(self, user_id: int, data: dict) -> bool:
-        """
-        Сохранить данные кандидата
-        В будущем: POST запрос к Go API endpoint /api/candidates
-        """
-        self.candidates[user_id] = data
-        vacancy = data.get('vacancy_name', 'Не указана')
-        print(f"[MOCK DB] Сохранены данные кандидата {user_id} на вакансию '{vacancy}': {data}")
-        return True
-    
-    def get_screening_result(self, user_id: int) -> dict:
-        """
-        Получить результат скрининга резюме
-        В будущем: GET запрос к Go API endpoint /api/screening/{user_id}
-        """
-        # Имитация работы нейросети - случайный результат
-        passed = random.choice([True, False])
-        print(f"[MOCK SCREENING] Результат для {user_id}: {'Прошел' if passed else 'Не прошел'}")
-        return {
-            'passed': passed,
-            'score': random.randint(60, 95) if passed else random.randint(30, 59),
-            'feedback': 'Ваше резюме соответствует требованиям вакансии' if passed else 'К сожалению, ваш опыт не соответствует требованиям'
-        }
-    
-    def get_interview_questions(self, vacancy_name: str = None) -> list:
-        """
-        Получить вопросы для интервью по вакансии
-        В будущем: GET запрос к Go API endpoint /api/vacancies/{vacancy_id}/questions
-        """
-        questions = [
-            "Расскажите о своем опыте работы в данной области",
-            "Какие технологии вы использовали в последнем проекте?",
-            "Опишите самую сложную задачу, которую вам приходилось решать",
-            "Почему вы хотите работать в нашей компании?",
-            "Какие ваши сильные и слабые стороны?"
-        ]
-        print(f"[MOCK DB] Получены вопросы для вакансии '{vacancy_name}'")
-        return questions
-    
-    def save_interview_answer(self, user_id: int, question_num: int, answer: str) -> bool:
-        """
-        Сохранить ответ на вопрос интервью
-        В будущем: POST запрос к Go API endpoint /api/interview/answers
-        """
-        if user_id not in self.interview_results:
-            self.interview_results[user_id] = {}
-        
-        self.interview_results[user_id][question_num] = answer
-        print(f"[MOCK DB] Сохранен ответ {question_num} для кандидата {user_id}")
-        return True
-    
-    def get_interview_result(self, user_id: int) -> dict:
-        """
-        Получить результат интервью
-        В будущем: GET запрос к Go API endpoint /api/interview/{user_id}/result
-        """
-        # Имитация анализа ответов - случайный результат
-        passed = random.choice([True, True, False])  # 66% шанс успеха
-        print(f"[MOCK INTERVIEW] Результат интервью для {user_id}: {'Прошел' if passed else 'Не прошел'}")
-        return {
-            'passed': passed,
-            'score': random.randint(70, 100) if passed else random.randint(40, 69),
-            'feedback': 'Поздравляем! Вы прошли на следующий этап' if passed else 'К сожалению, по результатам интервью мы не можем продолжить процесс отбора'
-        }
-    
+
     def get_candidate_status(self, user_id: int) -> dict:
         """
         Получить статус кандидата
@@ -91,12 +26,12 @@ class MockDatabase:
             {'status': 'hr_review', 'text': 'Проверка HR', 'description': 'HR-менеджер рассматривает вашу кандидатуру'},
             {'status': 'approved', 'text': 'Одобрено', 'description': 'Поздравляем! С вами свяжется HR'},
         ]
-        
+
         # Случайный статус для заглушки
         status_data = random.choice(statuses)
         print(f"[MOCK DB] Статус кандидата {user_id}: {status_data['status']}")
         return status_data
-    
+
     def get_timing_info(self) -> str:
         """
         Получить информацию о сроках
@@ -109,7 +44,7 @@ class MockDatabase:
             "• Финальное решение HR: 3-5 рабочих дней\n\n"
             "Мы стараемся обрабатывать заявки как можно быстрее и обязательно уведомим вас о любых изменениях статуса."
         )
-    
+
     def get_contact_info(self) -> str:
         """
         Получить контактную информацию
@@ -122,7 +57,7 @@ class MockDatabase:
             "• Рабочие часы: Пн-Пт, 9:00-18:00 (МСК)\n\n"
             "Если у вас возникли вопросы, вы можете написать нам на email или позвонить в рабочее время."
         )
-    
+
     def save_pending_interview(self, user_id: int, data: dict) -> bool:
         """
         Сохранить информацию о том, что кандидат ожидает прохождения интервью
@@ -135,44 +70,23 @@ class MockDatabase:
         }
         print(f"[MOCK DB] Сохранено ожидание интервью для {user_id}")
         return True
-    
-    def get_pending_interview(self, user_id: int) -> dict:
-        """
-        Получить информацию о незавершенном интервью
-        В будущем: GET запрос к API
-        """
-        pending = self.pending_interviews.get(user_id)
-        if pending:
-            print(f"[MOCK DB] Найдено незавершенное интервью для {user_id}")
-        return pending
-    
-    def remove_pending_interview(self, user_id: int) -> bool:
-        """
-        Удалить запись об ожидающем интервью (после прохождения)
-        В будущем: обновление статуса в БД
-        """
-        if user_id in self.pending_interviews:
-            del self.pending_interviews[user_id]
-            print(f"[MOCK DB] Удалено ожидание интервью для {user_id}")
-            return True
-        return False
 
-#⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠠⠀⠀⢀⢐⠀⣬⡄⠅⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡀⣶⣴⣿⣷⡿⡿⢷⣦⣥⡄⢀⠀⠀⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠀⠀⢖⣴⠋⢩⣿⠻⣷⠀⠀⠉⠻⣿⣆⣠⣶⡷⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⢉⠀⢸⡟⠀⢹⣷⡄⣠⣴⣿⣿⢫⠘⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⠀⠀⣿⡷⢀⣴⣿⣿⣟⠉⠐⣻⡇⠀⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠐⣿⡇⡇⣸⣿⣷⢟⠋⠁⠙⢿⣧⣀⣿⠁⠀⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⢀⣭⣿⣿⣿⣾⠏⠀⠀⠀⠀⠈⣿⣿⣿⣷⠈⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠰⠿⠋⠁⢟⣿⣿⣤⣦⡠⣀⣴⣶⡟⣻⢿⣾⡇⠄⠠⠀⠀⠀⠀
-#⠀⠀⠀⠐⠀⠀⠁⠀⠀⠀⠈⣿⡯⠟⠟⠛⡿⠋⠁⠄⢸⠀⠹⣿⣄⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢨⡿⠁⠀⠀⠀⠇⠀⠀⠀⢸⠀⠀⠘⠛⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠁⠀⢰⠆⠀⠀⠀⠀⠀⠆⠀⠀⠀⠀⠀⠀⠀⠀⠀
-#⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+
+# ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠠⠀⠀⢀⢐⠀⣬⡄⠅⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡀⣶⣴⣿⣷⡿⡿⢷⣦⣥⡄⢀⠀⠀⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠀⠀⢖⣴⠋⢩⣿⠻⣷⠀⠀⠉⠻⣿⣆⣠⣶⡷⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠀⢠⣿⢉⠀⢸⡟⠀⢹⣷⡄⣠⣴⣿⣿⢫⠘⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⠀⠀⣿⡷⢀⣴⣿⣿⣟⠉⠐⣻⡇⠀⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠐⣿⡇⡇⣸⣿⣷⢟⠋⠁⠙⢿⣧⣀⣿⠁⠀⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⢀⣭⣿⣿⣿⣾⠏⠀⠀⠀⠀⠈⣿⣿⣿⣷⠈⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠰⠿⠋⠁⢟⣿⣿⣤⣦⡠⣀⣴⣶⡟⣻⢿⣾⡇⠄⠠⠀⠀⠀⠀
+# ⠀⠀⠀⠐⠀⠀⠁⠀⠀⠀⠈⣿⡯⠟⠟⠛⡿⠋⠁⠄⢸⠀⠹⣿⣄⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢨⡿⠁⠀⠀⠀⠇⠀⠀⠀⢸⠀⠀⠘⠛⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠁⠀⢰⠆⠀⠀⠀⠀⠀⠆⠀⠀⠀⠀⠀⠀⠀⠀⠀
+# ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 
 
 # Глобальный экземпляр (в продакшене это будет заменено на настоящий API клиент)
 mock_db = MockDatabase()
-

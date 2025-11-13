@@ -375,9 +375,10 @@ async def process_resume(message: Message, state: FSMContext):
                 pass
 
             try:
+                questions, _ = await backend_client.get_questions_by_vacancy_id(vacancy_id)
                 await message.answer(
                     f"Приглашаем на интервью!\n"
-                    f"Вопросов: {INTERVIEW_QUESTIONS_COUNT}\n"
+                    f"Вопросов: {len(questions)}\n"
                     f"Время на каждый вопрос будет ограничено.",
                     reply_markup=get_ready_for_interview_keyboard()
                 )
