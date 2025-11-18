@@ -40,9 +40,8 @@ def get_quick_questions_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура с быстрыми вопросами"""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Какой мой статус?", callback_data="q_status")],
             [InlineKeyboardButton(text="⏰ Когда ждать ответа?", callback_data="q_timing")],
-            [InlineKeyboardButton(text="📞 Как с вами связаться?", callback_data="q_contact")],
+            [InlineKeyboardButton(text="📞 Сообщить о технической проблеме", callback_data="q_contact")],
             [InlineKeyboardButton(text="❌ Закрыть", callback_data="q_close")]
         ]
     )

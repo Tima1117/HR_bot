@@ -13,10 +13,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 
 from backend_client import get_backend_client
-from config import INTERVIEW_QUESTIONS_COUNT, MAX_RESUME_SIZE_BYTES, \
-    MAX_RESUME_SIZE_MB, RESUMES_DIR
+from config import MAX_RESUME_SIZE_BYTES, MAX_RESUME_SIZE_MB, RESUMES_DIR
 from keyboards import get_ready_for_interview_keyboard, get_quick_questions_keyboard
-from mock_data import mock_db
 from s3_service import storage_service
 from states import RegistrationStates, InterviewStates
 from util import is_valid_phone
@@ -115,7 +113,7 @@ async def cmd_resume(message: Message, state: FSMContext):
         if not candidate_id or not vacancy_id:
             await message.answer(
                 "У вас нет активных интервью.\n\n"
-                "Используйте ссылку от рекрутера, чтобы начать новое интервью.",
+                "Используйте ссылку от рекрутера, чтобы начать новое или продолжить старое интервью.",
             )
             return
 
@@ -446,14 +444,6 @@ async def start_interview_process(message: Message, state: FSMContext):
 async def not_ready_for_interview(callback: CallbackQuery, state: FSMContext):
     """Кандидат не готов к интервью"""
     await callback.answer()
-
-    # Получаем данные кандидата из сохраненных данных
-    candidate = mock_db.candidates.get(callback.from_user.id)
-
-    if candidate:
-        # Сохраняем информацию о том, что кандидат ожидает прохождения интервью
-        mock_db.save_pending_interview(callback.from_user.id, candidate)
-
     await callback.message.edit_text(
         "👌 Хорошо, вы можете пройти интервью позже.\n\n"
         "Когда будете готовы, используйте команду /resume чтобы продолжить."
@@ -640,47 +630,64 @@ async def finish_interview(message: Message, state: FSMContext):
 
 # ==================== БЫСТРЫЕ ВОПРОСЫ ====================
 
-@router.callback_query(F.data == "q_status")
-async def answer_status(callback: CallbackQuery):
-    """Ответ на вопрос о статусе"""
-    await callback.answer()
-
-    # Получаем статус из "базы данных" (заглушка)
-    status_data = mock_db.get_candidate_status(callback.from_user.id)
-
-    await callback.message.answer(
-        f"📊 <b>Ваш текущий статус:</b>\n\n"
-        f"🔹 {status_data['text']}\n\n"
-        f"{status_data['description']}\n\n"
-        f"Мы уведомим вас о любых изменениях!",
-        parse_mode="HTML"
-    )
-
-
 @router.callback_query(F.data == "q_timing")
-async def answer_timing(callback: CallbackQuery):
+async def answer_timing(callback: CallbackQuery, state: FSMContext):
     """Ответ на вопрос о сроках"""
     await callback.answer()
 
-    # Получаем информацию о сроках (заглушка)
-    timing_info = mock_db.get_timing_info()
+    data = await state.get_data()
+    vacancy_id = data.get("vacancy_id")
+    candidate_id = data.get("candidate_id")
 
-    await callback.message.answer(
-        timing_info,
-        parse_mode="HTML"
-    )
+    meta, code = await backend_client.get_screening_status(candidate_id, vacancy_id)
+    if not meta:
+        await callback.message.answer(
+            "❌ Не удалось получить информацию о вашем интервью.\n\n"
+            "Пожалуйста, используйте ссылку от рекрутера для начала или продолжения интервью.",
+        )
+        return
+
+    status = meta.get('status', '')
+    if status == "screening_ok":
+        await callback.message.answer(
+            f"Вы прошли скрининг резюме.\n"
+            f"Готовы начать интервью?",
+            parse_mode="HTML",
+            reply_markup=get_ready_for_interview_keyboard()
+        )
+        await state.set_state(InterviewStates.waiting_for_start)
+    elif status == "screening_failed":
+        await callback.message.answer(
+            "😔 К сожалению, вы не прошли этап скрининга резюме.\n\n"
+            "Для участия в других вакансиях используйте новую ссылку от рекрутера.",
+        )
+    elif status == "interview_failed":
+        await callback.message.answer(
+            f"😔 К сожалению, вы не прошли интервью.\n\n"
+            f"Мы ценим ваше время и интерес к нашей компании.\n"
+            f"Желаем успехов в поиске работы!",
+            parse_mode="HTML"
+        )
+    elif status == "interview_ok":
+        await callback.message.answer(
+            f"🎉 Поздравляем! Вы успешно прошли интервью!\n\n"
+            f"📧 С вами свяжется наш HR-менеджер в течении 2 рабочих дней для обсуждения следующих шагов.",
+            parse_mode="HTML"
+        )
+    else:
+        await callback.message.answer(
+            "У вас нет активных интервью.\n\n"
+            "Используйте ссылку от HR-менеджера, чтобы начать новый процесс отбора.",
+        )
 
 
 @router.callback_query(F.data == "q_contact")
 async def answer_contact(callback: CallbackQuery):
     """Ответ на вопрос о контактах"""
     await callback.answer()
-
-    # Получаем контактную информацию (заглушка)
-    contact_info = mock_db.get_contact_info()
-
     await callback.message.answer(
-        contact_info,
+        "📞Сообщить об ошибке в работе бота: \n\n"
+        "Email: support@email.ru\n",
         parse_mode="HTML"
     )
 
