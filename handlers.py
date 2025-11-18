@@ -687,7 +687,7 @@ async def answer_contact(callback: CallbackQuery):
     await callback.answer()
     await callback.message.answer(
         "📞Сообщить об ошибке в работе бота: \n\n"
-        "Email: support@email.ru\n",
+        "Email: tima_grachev@cvortex.com\n",
         parse_mode="HTML"
     )
 
