@@ -71,7 +71,7 @@ class BackendClient:
     # ==================== КАНДИДАТ ====================
 
     async def get_candidate(self, telegram_id: int) -> (Optional[Dict[str, Any]], int):
-        return await self._make_request('GET', f'/api/v1/candidates/by-tg-id/{telegram_id}')
+        return await self._make_request('GET', f'/api/bot/v1/candidates/by-tg-id/{telegram_id}')
 
     async def create_candidate(self, candidate_data: Dict[str, Any]) -> (Optional[Dict[str, Any]], int):
         api_data = {
@@ -82,7 +82,7 @@ class BackendClient:
             'telegram_username': candidate_data.get('telegram_username').lstrip('@'),
         }
         api_data = {k: v for k, v in api_data.items() if v is not None}
-        return await self._make_request('POST', '/api/v1/candidate', api_data)
+        return await self._make_request('POST', '/api/bot/v1/candidate', api_data)
 
     # ==================== СКРИНИНГ РЕЗЮМЕ ====================
 
@@ -92,12 +92,12 @@ class BackendClient:
             'vacancy_id': vacancy_id,
         }
         api_data = {k: v for k, v in api_data.items() if v is not None}
-        return await self._make_request('POST', f'/api/v1/screening/process', api_data)
+        return await self._make_request('POST', f'/api/bot/v1/screening/process', api_data)
 
     # ==================== ИНТЕРВЬЮ ====================
 
     async def get_questions_by_vacancy_id(self, vacancy_id: uuid) -> (Optional[List[Dict[str, Any]]], int):
-        return await self._make_request('GET', f'/api/v1/questions/{vacancy_id}')
+        return await self._make_request('GET', f'/api/bot/v1/questions/{vacancy_id}')
 
     async def post_answer_by_question_id(self, candidate_id: int, question_id: uuid, answer: str, time_taken: int) -> \
             (Optional[Dict[str, Any]], int):
@@ -107,19 +107,19 @@ class BackendClient:
             'content': answer,
             'time_taken': time_taken,
         }
-        return await self._make_request('POST', f'/api/v1/answer', api_data)
+        return await self._make_request('POST', f'/api/bot/v1/answer', api_data)
 
     async def post_update_status(self, candidate_id: int, vacancy_id: uuid) -> (Optional[Dict[str, Any]], int):
         api_data = {
             'candidate_id': candidate_id,
             'vacancy_id': vacancy_id,
         }
-        return await self._make_request('POST', f'/api/v1/interview/process', api_data)
+        return await self._make_request('POST', f'/api/bot/v1/interview/process', api_data)
 
     # ==================== СТАТУСЫ И УВЕДОМЛЕНИЯ ====================
 
     async def get_screening_status(self, candidate_id: int, vacancy_id: uuid) -> (Optional[Dict[str, Any]], int):
-        return await self._make_request('GET', f'/api/v1/meta/{candidate_id}/{vacancy_id}')
+        return await self._make_request('GET', f'/api/bot/v1/meta/{candidate_id}/{vacancy_id}')
 
 
 # Синглтон экземпляр клиента
