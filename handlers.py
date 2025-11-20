@@ -363,6 +363,7 @@ async def process_resume(message: Message, state: FSMContext):
             f"❌ Вы пытаетесь подать резюме на несуществующую вакансию.\n"
             f"Свяжитесь с HR-менеджером для уточнения деталей."
         )
+        return
     if screening_result:
         if screening_result['status'] == "screening_ok":
             # Резюме прошло проверку - предлагаем интервью
