@@ -269,7 +269,7 @@ async def process_city(message: Message, state: FSMContext):
     }
 
     try:
-        result, _ = await backend_client.create_candidate(candidate_data)
+        result, code = await backend_client.create_candidate(candidate_data)
 
         if result:
             await message.answer(
@@ -282,8 +282,7 @@ async def process_city(message: Message, state: FSMContext):
             await state.set_state(RegistrationStates.waiting_for_resume)
         else:
             error_msg = result.get('error', 'Unknown error') if result else 'No response'
-            status_code = result.get('status_code', 'No status') if result else 'No status'
-            logger.error(f"Failed to create candidate. Status: {status_code}, Error: {error_msg}")
+            logger.error(f"Failed to create candidate. Status: {code}, Error: {error_msg}")
             await message.answer("❌ Проблемы с подключением, повторите попытку позже")
 
     except Exception as e:
@@ -361,7 +360,7 @@ async def process_resume(message: Message, state: FSMContext):
     screening_result, code = await backend_client.get_screening_status(candidate_id, vacancy_id)
     if code == 404:
         await message.answer(
-            f"❌ Вы пытаетесь подать резюме на несуществующую вакансию.\n",
+            f"❌ Вы пытаетесь подать резюме на несуществующую вакансию.\n"
             f"Свяжитесь с HR-менеджером для уточнения деталей."
         )
     if screening_result:
